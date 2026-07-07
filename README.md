@@ -1,487 +1,227 @@
-"""Tests for the spectdd CLI — written first, TDD style."""
-import json
-import os
-import subprocess
-import sys
+<div align="center">
 
-import pytest
+# 🔒 spectdd
 
-from spectdd import cli
+### Spec-Driven + Test-Driven Development for AI coding assistants<br/>— with *real* human approval gates —
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
+[![Version](https://img.shields.io/badge/version-0.9.0-brightgreen.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-58%20passed-success.svg)](tests/test_cli.py)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](CONTRIBUTING.md)
 
-@pytest.fixture()
-def repo(tmp_path, monkeypatch):
-    """An empty project directory acting as the user's repo."""
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
+**Your AI writes the code. You keep the steering wheel. Your wallet keeps its tokens.**
 
+🇬🇧 [English](#-english) · 🇪🇸 [Español](#-español)
 
-# ---------------------------------------------------------------- init
+</div>
 
-def test_init_claude_creates_slash_commands(repo):
-    rc = cli.main(["init", "--assistant", "claude"])
-    assert rc == 0
-    cmds = repo / ".claude" / "commands" / "spectdd"
-    assert (cmds / "specify.md").is_file()
-    assert (cmds / "implement.md").is_file()
-    assert len(list(cmds.glob("*.md"))) == 7  # six phases + onboard
+---
 
+## 🇬🇧 English
 
-def test_init_copilot_uses_prompt_extension(repo):
-    cli.main(["init", "--assistant", "copilot"])
-    prompts = repo / ".github" / "prompts"
-    assert (prompts / "spectdd-specify.prompt.md").is_file()
+### 😱 The problem
 
+| Without spectdd | With spectdd |
+|---|---|
+| 🎲 **Vibe coding** — code no failing test ever justified | 🔴🟢♻️ **Enforced TDD** — you approve every red test before a line of implementation |
+| 🚦 Agent races ahead without your sign-off | 🔒 **Real gates** — a CLI exit code blocks every phase until *you* approve |
+| 🕳️ No code review — bugs & N+1s slip through | 🔍 **Built-in code audit** in the review phase |
+| 🔓 No security review — injections & leaked secrets ship | 🛡️ **Built-in security audit** — critical/high findings block the merge |
+| 💸 Token burn — verbose chat, duplicated markdown | ⚡ **Token efficiency by design** — up to ~70% less output |
 
-def test_init_all_installs_every_assistant(repo):
-    cli.main(["init", "--assistant", "all"])
-    assert (repo / ".claude" / "commands" / "spectdd" / "plan.md").is_file()
-    assert (repo / ".cursor" / "commands" / "spectdd-plan.md").is_file()
-    assert (repo / ".github" / "prompts" / "spectdd-plan.prompt.md").is_file()
+Tools like Spec Kit or Kiro structure the phases, but their "wait for human review"
+is just a sentence in a prompt. In spectdd **the gate is an exit code**: the agent
+must run `spectdd check <phase>` and it fails until you approve. No external
+plugins. Works the same on **Claude Code, Cursor and GitHub Copilot**.
 
+### 🗺️ The workflow
 
-def test_init_creates_state_and_templates(repo):
-    cli.main(["init", "--assistant", "claude"])
-    assert (repo / ".spectdd" / "state.json").is_file()
-    assert (repo / ".spectdd" / "templates" / "spec-template.md").is_file()
-    state = json.loads((repo / ".spectdd" / "state.json").read_text())
-    assert state == {"constitution": None, "features": {}}
+```
+ 🧭 onboard (existing code)  or  🏗️ architect (new project)
+        └──> 📜 constitution → 📋 specify → 📐 plan → ✅ tasks → 🔴🟢♻️ implement → 🔍 review
+                    ▲              ▲           ▲          ▲             ▲
+                you approve    you approve  you approve  you approve   you approve
+```
 
+Every approval is signed (name + timestamp + channel) in `.spectdd/state.json` —
+commit it and approvals become part of code review.
 
-def test_init_is_idempotent_and_keeps_state(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    cli.main(["init", "--assistant", "claude"])  # re-run must not wipe approvals
-    state = json.loads((repo / ".spectdd" / "state.json").read_text())
-    assert state["constitution"]["approved_by"] == "dev"
+### 📦 Install
 
+```bash
+pipx install git+https://github.com/jjvadillo/spectdd.git   # recommended
+pip  install git+https://github.com/jjvadillo/spectdd.git   # alternative
+```
 
-# ------------------------------------------------------------- approve
+### 🚀 Quick start
 
-def test_approve_constitution_records_signature(repo):
-    cli.main(["init", "--assistant", "claude"])
-    rc = cli.main(["approve", "constitution", "--by", "javier"])
-    assert rc == 0
-    state = json.loads((repo / ".spectdd" / "state.json").read_text())
-    assert state["constitution"]["approved_by"] == "javier"
-    assert "at" in state["constitution"]
+> 📖 Full step-by-step guide (new project vs existing project, every command
+> explained): **[INSTALL.md](INSTALL.md)**
 
+```bash
+cd your-project
+spectdd init --assistant claude    # or cursor | copilot | all
+```
 
-def test_approve_feature_phase(repo):
-    cli.main(["init", "--assistant", "claude"])
-    rc = cli.main(["approve", "specify", "--feature", "001-favs", "--by", "javier"])
-    assert rc == 0
-    state = json.loads((repo / ".spectdd" / "state.json").read_text())
-    assert state["features"]["001-favs"]["specify"]["approved_by"] == "javier"
+First run launches an **interactive wizard** (project name, language, frameworks,
+tests, lint, typing, dependencies, output style, approval mode) and generates a
+pre-filled constitution. On an existing codebase, `init` **auto-detects your stack**
+(`package.json`, `pyproject.toml`, `go.mod`, `pom.xml`...) and pre-fills the answers.
 
+Then, inside your assistant:
 
-def test_approve_rejects_unknown_phase(repo):
-    cli.main(["init", "--assistant", "claude"])
-    with pytest.raises(SystemExit):
-        cli.main(["approve", "nonsense"])
+| Step | Command | You get |
+|---|---|---|
+| 🧭 | `/spectdd:onboard` *(existing projects)* | Constitution + `architecture.md` from your real code, gap report |
+| 🏗️ | `spectdd-architect` skill *(new projects)* | Architecture interview, one question at a time, ★ recommendations |
+| 📜 | `/spectdd:constitution` | Non-negotiable principles |
+| 📋 | `/spectdd:specify <idea>` | User stories + testable acceptance criteria |
+| 📐 | `/spectdd:plan` | Technical plan bound by the constitution |
+| ✅ | `/spectdd:tasks` | Small, ordered, test-first tasks |
+| 🔴🟢♻️ | `/spectdd:implement` | TDD loop — you approve each red test |
+| 🔍 | `/spectdd:review` | Spec compliance + code audit + security audit |
 
+### 🤝 Phase handoff — two approval modes
 
-def test_feature_phase_requires_feature_flag(repo):
-    cli.main(["init", "--assistant", "claude"])
-    rc = cli.main(["approve", "plan"])  # missing --feature
-    assert rc == 2
+At the end of each phase the agent prints a tiny block:
 
+```
+Done: what this phase produced (≤3 bullets)
+Next (plan): what it will do (≤2 bullets)
+Continue? (yes = approve specify & start plan)
+```
 
-# --------------------------------------------------------------- check
+| Mode | Your "yes" in chat | Best for |
+|---|---|---|
+| `terminal` *(default)* | Not enough — you still run `spectdd approve ...` yourself | Maximum control, teams, CI |
+| `chat` | Authorizes the agent to run the approve **for you** (audited as `via: chat`) | Solo flow, speed |
 
-def test_check_fails_when_gate_not_approved(repo):
-    cli.main(["init", "--assistant", "claude"])
-    rc = cli.main(["check", "specify", "--feature", "001-favs"])
-    assert rc == 1
+Pick it with `spectdd init --approval chat`, in the wizard, or in `.spectdd/config.json`.
 
+### 🧰 CLI reference
 
-def test_check_passes_when_previous_gates_approved(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    assert cli.main(["check", "specify", "--feature", "001-favs"]) == 0
-    assert cli.main(["check", "plan", "--feature", "001-favs"]) == 1
-    cli.main(["approve", "specify", "--feature", "001-favs", "--by", "dev"])
-    assert cli.main(["check", "plan", "--feature", "001-favs"]) == 0
+| Command | What it does |
+|---|---|
+| `spectdd init --assistant claude\|cursor\|copilot\|all [--style terse\|normal\|ultra] [--approval terminal\|chat] [--interactive\|--no-input]` | Install commands, architect skill, templates + setup wizard (auto-detects your stack) |
+| `spectdd setup` | Re-run the wizard (asks before overwriting the constitution) |
+| `spectdd approve <phase> [--feature SLUG] [--by NAME] [--via terminal\|chat]` | Record a human approval (opens the next gate) |
+| `spectdd check <phase> [--feature SLUG]` | Used by the agent — exit 1 = gate closed |
+| `spectdd revoke <phase> [--feature SLUG]` | Withdraw an approval **and every downstream one** |
+| `spectdd status` | Approval state of every phase & feature, style, audit trail |
 
+### ⚡ Token efficiency by design
+
+- 🗜️ **3 chat compression levels**: `normal` · `terse` (default) · `ultra` (fragments, abbreviations, one line per idea).
+- 📄 **File-first rule**: documents written to disk are never echoed in chat — path + ≤5-line outline. The single biggest saver.
+- 🔗 **Artifact economy**: spec/plan/tasks never repeat each other, they cross-reference by ID ("covers AC-2.1"). No boilerplate, no gold plating.
+- ✂️ **Compact footers & trimmed traces**: one-line phase footers; only the failing assertion in chat.
+- 🏗️ **Lazy architect skill**: ~6-line trigger; of the 5 language question banks only the one you pick ever enters the context window.
+- 🔒 **Never compressed**: code, tests, diffs, commands and audit reports stay byte-exact.
 
-def test_full_gate_chain_for_implement(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    for phase in ("specify", "plan", "tasks"):
-        cli.main(["approve", phase, "--feature", "001-x", "--by", "dev"])
-    assert cli.main(["check", "implement", "--feature", "001-x"]) == 0
-    assert cli.main(["check", "review", "--feature", "001-x"]) == 1
+> In simulated full runs these rules cut LLM output by **~65-70%** vs a verbose
+> baseline. Real savings depend on your model and feature size.
 
+### 🥊 Why this and not something else?
 
-# -------------------------------------------------------------- status
+| | Raw AI assistant | Spec Kit / Kiro | **spectdd** |
+|---|---|---|---|
+| Spec & plan before code | ❌ | ✅ | ✅ |
+| Human gate between phases | ❌ | 📝 prompt only | 🔒 **enforced by exit code** |
+| TDD (test approved before impl.) | ❌ | ❌ | ✅ |
+| Code + security audits built-in | ❌ | ❌ | ✅ |
+| Token-optimized output | ❌ | ❌ | ✅ (~65-70% less) |
+| Adopts existing codebases | — | weak | ✅ `/spectdd:onboard` |
 
-def test_status_lists_features_and_gates(repo, capsys):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    cli.main(["approve", "specify", "--feature", "001-favs", "--by", "dev"])
-    cli.main(["status"])
-    out = capsys.readouterr().out
-    assert "constitution" in out and "001-favs" in out
-    assert "specify" in out
+### 🧪 Development
 
+Dogfooding: the CLI itself was built test-first (58 tests).
 
-def test_check_without_init_explains_problem(repo, capsys):
-    rc = cli.main(["check", "specify", "--feature", "x"])
-    assert rc == 1
-    assert "spectdd init" in capsys.readouterr().out
+```bash
+pip install -e ".[dev]" && pytest
+```
 
+MIT license. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[CHANGELOG](CHANGELOG.md). Open an issue with a spec before a PR. 😉
 
-# -------------------------------------------------- integrations (v0.2)
+---
 
-def _asset(phase):
-    from importlib import resources
-    return (resources.files("spectdd") / "assets" / "commands" / f"{phase}.md").read_text(encoding="utf-8")
+## 🇪🇸 Español
 
+### 😱 El problema
 
-def test_every_command_defines_terse_output_style():
-    # Native token-saving style (no external skill needed)
-    for phase in ("constitution", "specify", "plan", "tasks", "implement", "review"):
-        text = _asset(phase).lower()
-        assert "output style" in text, f"{phase}.md lacks output style section"
-        assert "terse" in text
+| Sin spectdd | Con spectdd |
+|---|---|
+| 🎲 **Vibe coding** — código que ningún test en rojo justificó | 🔴🟢♻️ **TDD obligatorio** — apruebas cada test en rojo antes de una línea de implementación |
+| 🚦 El agente avanza sin tu visto bueno | 🔒 **Puertas reales** — un exit code bloquea cada fase hasta que *tú* apruebas |
+| 🕳️ Sin code review — bugs y N+1 se cuelan | 🔍 **Auditoría de código integrada** en la fase review |
+| 🔓 Sin revisión de seguridad — inyecciones y secretos filtrados | 🛡️ **Auditoría de seguridad integrada** — los hallazgos critical/high bloquean el merge |
+| 💸 Derroche de tokens — chat verboso, markdown duplicado | ⚡ **Eficiencia de tokens por diseño** — hasta ~70% menos salida |
 
+Herramientas como Spec Kit o Kiro estructuran las fases, pero su "espera al humano"
+es solo una frase en un prompt. En spectdd **la puerta es un exit code**: el agente
+debe ejecutar `spectdd check <fase>` y falla hasta que tú apruebas. Sin plugins
+externos. Funciona igual en **Claude Code, Cursor y GitHub Copilot**.
 
-def test_review_phase_has_native_code_and_security_audits():
-    text = _asset("review").lower()
-    assert "code audit" in text
-    assert "security audit" in text
-    for marker in ("injection", "secrets", "authorization", "input validation"):
-        assert marker in text, f"security audit missing: {marker}"
-    assert "critical" in text and "high" in text  # severity ratings
+### 📦 Instalación y arranque
 
+> 📖 Guía completa paso a paso (proyecto nuevo vs existente, todos los comandos
+> explicados): **[INSTALL.md](INSTALL.md)**
 
-def test_implement_requires_secure_coding_per_task():
-    text = _asset("implement").lower()
-    assert "security" in text and "validate" in text
+```bash
+pipx install git+https://github.com/jjvadillo/spectdd.git
+cd tu-proyecto
+spectdd init --assistant claude    # o cursor | copilot | all
+```
 
+La primera ejecución lanza el **wizard interactivo** (nombre, lenguaje, frameworks,
+tests, lint, tipado, dependencias, estilo de salida y modo de aprobación) y genera
+una constitución ya rellena. En un proyecto existente, `init` **detecta tu stack**
+automáticamente y pre-rellena las respuestas.
 
-def test_constitution_template_dod_includes_audits_and_style():
-    from importlib import resources
-    tpl = (resources.files("spectdd") / "assets" / "templates" /
-           "constitution-template.md").read_text(encoding="utf-8").lower()
-    assert "code audit" in tpl and "security audit" in tpl
-    assert "output style" in tpl
+Después, en tu asistente: `/spectdd:onboard` si el proyecto ya existe (constitución +
+arquitectura + informe de huecos desde tu código real) o la skill `spectdd-architect`
+si empiezas de cero (entrevista con recomendaciones ★) → `/spectdd:constitution` →
+`/spectdd:specify` → `/spectdd:plan` → `/spectdd:tasks` → `/spectdd:implement`
+(bucle TDD: apruebas cada test en rojo) → `/spectdd:review` (auditorías).
 
+### 🤝 Handoff entre fases — dos modos de aprobación
 
-def test_init_writes_config_with_terse_default(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text())
-    assert cfg["output_style"] == "terse"
+Al final de cada fase: **Hecho** (≤3 puntos) + **Siguiente** (≤2 puntos) + **¿Continuar?**
 
+| Modo | Tu "sí" en el chat | Ideal para |
+|---|---|---|
+| `terminal` *(por defecto)* | No basta — ejecutas tú `spectdd approve ...` | Máximo control, equipos |
+| `chat` | Autoriza al agente a ejecutar el approve **por ti** (auditado como `via: chat`) | Trabajo en solitario, agilidad |
 
-def test_init_style_flag_overrides(repo):
-    cli.main(["init", "--assistant", "claude", "--style", "normal"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text())
-    assert cfg["output_style"] == "normal"
+### 🧰 Comandos
 
+| Comando | Para qué |
+|---|---|
+| `spectdd init --assistant ... [--style ...] [--approval ...]` | Instalar todo + wizard (detecta tu stack) |
+| `spectdd setup` | Relanzar el wizard |
+| `spectdd approve <fase> [--feature SLUG] [--via chat]` | Registrar tu aprobación (abre la puerta) |
+| `spectdd check <fase> [--feature SLUG]` | Lo usa el agente — exit 1 = puerta cerrada |
+| `spectdd revoke <fase> [--feature SLUG]` | Retirar una aprobación **y todas las posteriores** |
+| `spectdd status` | Estado de fases, features, estilo y auditoría |
 
-def test_init_installs_output_style_reference(repo):
-    cli.main(["init", "--assistant", "claude"])
-    assert (repo / ".spectdd" / "templates" / "output-style.md").is_file()
+### ⚡ Eficiencia de tokens
 
+Tres niveles de compresión del chat (`normal`/`terse`/`ultra`), regla **file-first**
+(los documentos no se vuelcan al chat), economía de artefactos (referencias por ID,
+sin repetición), footers de una línea, trazas recortadas a la aserción que falla y
+skill de arquitectura con carga perezosa (solo entra en contexto el banco de
+preguntas del lenguaje elegido). Código, tests, diffs y auditorías **nunca** se
+comprimen. En simulaciones: **~65-70% menos salida** que una línea base verbosa.
 
-# ------------------------------------------------------------ smoke CLI
+### 🧭 Filosofía
 
-def test_entrypoint_runs_as_module(repo):
-    r = subprocess.run(
-        [sys.executable, "-m", "spectdd", "--help"],
-        capture_output=True, text=True, env={**os.environ},
-    )
-    assert r.returncode == 0
-    assert "spectdd" in r.stdout.lower()
+1. **Tú eres dueño de la especificación y de los tests; la IA es dueña de la implementación.**
+2. Ninguna fase empieza sin aprobación humana explícita y registrada.
+3. El código solo existe cuando hay un test en rojo que lo justifica.
+4. Ahorrar tokens nunca significa perder precisión.
 
+### 📄 Licencia
 
-# -------------------------------------------------- e2e fixes (v0.3)
-
-def test_init_creates_memory_dir(repo):
-    cli.main(["init", "--assistant", "claude"])
-    assert (repo / ".spectdd" / "memory").is_dir()
-
-
-def test_status_shows_output_style(repo, capsys):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["status"])
-    assert "terse" in capsys.readouterr().out
-
-
-def test_approve_warns_when_feature_folder_missing(repo, capsys):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    rc = cli.main(["approve", "specify", "--feature", "999-typo", "--by", "dev"])
-    assert rc == 0  # warning, not error
-    assert "warning" in capsys.readouterr().out.lower()
-
-
-def test_revoke_clears_phase_and_downstream(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    for phase in ("specify", "plan", "tasks"):
-        cli.main(["approve", phase, "--feature", "001-x", "--by", "dev"])
-    rc = cli.main(["revoke", "plan", "--feature", "001-x"])
-    assert rc == 0
-    state = json.loads((repo / ".spectdd" / "state.json").read_text())
-    gates = state["features"]["001-x"]
-    assert "specify" in gates          # upstream intact
-    assert "plan" not in gates         # revoked
-    assert "tasks" not in gates        # downstream cascaded
-    assert cli.main(["check", "tasks", "--feature", "001-x"]) == 1
-
-
-def test_revoke_constitution(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev"])
-    assert cli.main(["revoke", "constitution"]) == 0
-    assert cli.main(["check", "specify", "--feature", "001-x"]) == 1
-
-
-# ---------------------------------------------- interactive setup (v0.4)
-
-def _feed(monkeypatch, answers):
-    it = iter(answers)
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
-
-
-def test_init_interactive_creates_filled_constitution(repo, monkeypatch):
-    _feed(monkeypatch, ["MiApp", "Python 3.12", "FastAPI", "pytest",
-                        "ruff + black", "estricto", "solo con aprobación", "terse", ""])
-    rc = cli.main(["init", "--assistant", "claude", "--interactive"])
-    assert rc == 0
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    for value in ("MiApp", "FastAPI", "pytest", "ruff + black"):
-        assert value in c
-    # los datos quedan también en config.json
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["project"]["name"] == "MiApp"
-
-
-def test_init_wizard_empty_answers_use_defaults(repo, monkeypatch):
-    _feed(monkeypatch, [""] * 9)
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    assert "pytest" in c                      # default test framework
-    assert repo.name in c                     # default project name = cwd
-
-
-def test_init_wizard_can_set_normal_style(repo, monkeypatch):
-    _feed(monkeypatch, ["", "", "", "", "", "", "", "normal", ""])
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["output_style"] == "normal"
-
-
-def test_init_non_tty_does_not_prompt(repo, monkeypatch):
-    def boom(prompt=""):
-        raise AssertionError("wizard must not prompt in non-interactive mode")
-    monkeypatch.setattr("builtins.input", boom)
-    rc = cli.main(["init", "--assistant", "claude"])  # stdin is not a tty in tests
-    assert rc == 0
-    assert not (repo / ".spectdd" / "memory" / "constitution.md").exists()
-
-
-def test_setup_command_runs_wizard_later(repo, monkeypatch):
-    cli.main(["init", "--assistant", "claude"])
-    _feed(monkeypatch, ["OtraApp", "", "", "", "", "", "", "", ""])
-    rc = cli.main(["setup"])
-    assert rc == 0
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    assert "OtraApp" in c
-
-
-def test_setup_asks_before_overwriting(repo, monkeypatch):
-    cli.main(["init", "--assistant", "claude"])
-    _feed(monkeypatch, ["App1", "", "", "", "", "", "", "", ""])
-    cli.main(["setup"])
-    _feed(monkeypatch, ["n"])                 # rechazar sobrescritura
-    rc = cli.main(["setup"])
-    assert rc == 0
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    assert "App1" in c                        # sigue intacta
-
-
-# ---------------------------------------------- token efficiency (v0.5)
-
-def test_ultra_style_supported(repo):
-    cli.main(["init", "--assistant", "claude", "--style", "ultra"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["output_style"] == "ultra"
-
-
-def test_wizard_accepts_ultra(repo, monkeypatch):
-    _feed(monkeypatch, ["", "", "", "", "", "", "", "ultra", ""])
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["output_style"] == "ultra"
-
-
-def test_every_command_includes_token_economy_rules():
-    for phase in ("constitution", "specify", "plan", "tasks", "implement", "review"):
-        text = _asset(phase).lower()
-        assert "token economy" in text, f"{phase}.md lacks token economy rules"
-        assert "ultra" in text
-
-
-def test_output_style_reference_documents_all_levels():
-    from importlib import resources
-    tpl = (resources.files("spectdd") / "assets" / "templates" /
-           "output-style.md").read_text(encoding="utf-8").lower()
-    assert "ultra" in tpl
-    assert "artifact economy" in tpl or "token" in tpl
-
-
-# ------------------------------------------- output minimization (v0.6)
-
-def test_commands_apply_file_first_rule():
-    # nunca volcar al chat un documento recién escrito a fichero
-    for phase in ("constitution", "specify", "plan", "tasks"):
-        assert "file-first" in _asset(phase).lower(), f"{phase}.md lacks file-first rule"
-
-
-def test_commands_define_compact_footer():
-    for phase in ("constitution", "specify", "plan", "tasks", "implement"):
-        text = _asset(phase).lower()
-        assert "compact footer" in text, f"{phase}.md lacks compact footer rule"
-
-
-def test_implement_trims_failure_traces():
-    text = _asset("implement").lower()
-    assert "failing assertion" in text
-
-
-def test_output_style_documents_file_first():
-    from importlib import resources
-    tpl = (resources.files("spectdd") / "assets" / "templates" /
-           "output-style.md").read_text(encoding="utf-8").lower()
-    assert "file-first" in tpl and "compact footer" in tpl
-
-
-# ------------------------------------------- architect skill (v0.7)
-
-def test_init_installs_architect_skill_library(repo):
-    cli.main(["init", "--assistant", "claude"])
-    lib = repo / ".spectdd" / "skills" / "architect"
-    assert (lib / "architect.md").is_file()
-    for lang in ("python", "typescript", "java", "go", "generic"):
-        assert (lib / f"{lang}.md").is_file(), f"missing {lang}.md"
-
-
-def test_claude_gets_thin_architect_skill_entry(repo):
-    cli.main(["init", "--assistant", "claude"])
-    skill = repo / ".claude" / "skills" / "spectdd-architect" / "SKILL.md"
-    assert skill.is_file()
-    text = skill.read_text(encoding="utf-8")
-    assert "architect/architect.md" in text
-    assert len(text) < 800  # disparador fino: casi cero tokens hasta invocarla
-
-
-def test_cursor_and_copilot_get_architect_trigger(repo):
-    cli.main(["init", "--assistant", "all"])
-    assert (repo / ".cursor" / "commands" / "spectdd-architect.md").is_file()
-    assert (repo / ".github" / "prompts" / "spectdd-architect.prompt.md").is_file()
-
-
-def test_architect_core_uses_lazy_loading_and_single_questions():
-    from importlib import resources
-    core = (resources.files("spectdd") / "assets" / "skills" /
-            "architect.md").read_text(encoding="utf-8").lower()
-    assert "only" in core          # carga SOLO el fichero del lenguaje elegido
-    assert "one question" in core  # una pregunta cada vez
-
-
-def test_language_files_carry_marked_recommendations():
-    from importlib import resources
-    for lang in ("python", "typescript", "java", "go"):
-        text = (resources.files("spectdd") / "assets" / "skills" /
-                f"{lang}.md").read_text(encoding="utf-8")
-        assert "★" in text, f"{lang}.md has no marked recommendations"
-
-
-# --------------------------------------------- phase handoff (v0.8)
-
-def test_default_approval_mode_is_terminal(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["approval_mode"] == "terminal"
-
-
-def test_init_chat_approval_flag(repo):
-    cli.main(["init", "--assistant", "claude", "--approval", "chat"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["approval_mode"] == "chat"
-
-
-def test_wizard_asks_approval_mode(repo, monkeypatch):
-    _feed(monkeypatch, ["", "", "", "", "", "", "", "", "chat"])
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    cfg = json.loads((repo / ".spectdd" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["approval_mode"] == "chat"
-
-
-def test_approve_records_via_channel(repo):
-    cli.main(["init", "--assistant", "claude"])
-    cli.main(["approve", "constitution", "--by", "dev", "--via", "chat"])
-    state = json.loads((repo / ".spectdd" / "state.json").read_text(encoding="utf-8"))
-    assert state["constitution"]["via"] == "chat"
-
-
-def test_gate_phases_include_handoff_block():
-    for phase in ("constitution", "specify", "plan", "tasks", "implement"):
-        text = _asset(phase).lower()
-        assert "handoff" in text, f"{phase}.md lacks phase handoff"
-        assert "approval_mode" in text
-        assert "explicit" in text  # el sí debe ser explícito
-
-
-def test_constitution_hard_rules_have_chat_exception():
-    text = _asset("constitution").lower()
-    assert "sole exception" in text and '"chat"' in text
-
-
-# ------------------------------------------- brownfield onboarding (v0.9)
-
-def test_init_installs_onboard_command_everywhere(repo):
-    cli.main(["init", "--assistant", "all"])
-    assert (repo / ".claude" / "commands" / "spectdd" / "onboard.md").is_file()
-    assert (repo / ".cursor" / "commands" / "spectdd-onboard.md").is_file()
-    assert (repo / ".github" / "prompts" / "spectdd-onboard.prompt.md").is_file()
-
-
-def test_onboard_command_analyzes_existing_project():
-    text = _asset("onboard").lower()
-    for marker in ("existing", "detect", "architecture.md", "constitution",
-                   "file-first", "gap"):
-        assert marker in text, f"onboard.md missing: {marker}"
-
-
-def test_onboard_is_not_a_gated_phase(repo):
-    # onboard no forma parte de la cadena de puertas
-    cli.main(["init", "--assistant", "claude"])
-    with pytest.raises(SystemExit):
-        cli.main(["check", "onboard"])
-
-
-def test_wizard_detects_node_project(repo, monkeypatch):
-    (repo / "package.json").write_text('{"name": "x", "devDependencies": {"vitest": "^1"}}')
-    _feed(monkeypatch, [""] * 9)   # aceptar todos los valores detectados
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    assert "Node" in c or "TypeScript" in c
-    assert "vitest" in c.lower()
-
-
-def test_wizard_detects_go_project(repo, monkeypatch):
-    (repo / "go.mod").write_text("module example.com/x\n\ngo 1.22\n")
-    _feed(monkeypatch, [""] * 9)
-    cli.main(["init", "--assistant", "claude", "--interactive"])
-    c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
-    assert "Go" in c
-
-
-def test_init_reports_detected_project(repo, capsys):
-    (repo / "pyproject.toml").write_text("[project]\nname='x'\n")
-    cli.main(["init", "--assistant", "claude"])
-    assert "detected" in capsys.readouterr().out.lower()
+MIT. Construido con TDD estricto: 58 tests escritos antes que el código.
+Contribuciones: [CONTRIBUTING.md](CONTRIBUTING.md) · Historial: [CHANGELOG.md](CHANGELOG.md)
