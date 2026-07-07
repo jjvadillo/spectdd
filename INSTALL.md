@@ -258,4 +258,3 @@ la skill architect: onboard ya generó `architecture.md`.
 
 **Consejo:** commitea `.spectdd/` (incluido `state.json`) — las aprobaciones quedan
 en el historial del repo y en el code review.
-

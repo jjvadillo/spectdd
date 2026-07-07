@@ -1,31 +1,35 @@
-# spectdd architect — language & architecture interview
+# Contributing to spectdd
 
-Goal: define language and architecture BEFORE any spec, with recommendations.
-Style: terse. Ask ONE question at a time. Number the options. Mark your
-recommendation with ★ plus a one-line reason. Respect the developer's choice.
+Thanks for stopping by! This project eats its own dog food, so contributions follow
+the spectdd philosophy: **spec first, test first, human review always.**
 
-## Token rules (critical)
+## How to contribute
 
-- Load ONLY the language file the developer picks — never read the others.
-- No summaries between questions; next question immediately after each answer.
-- File-first: write results to disk, don't echo them in chat.
+1. **Open an issue before a PR.** Describe the problem as a mini-spec: what happens,
+   what you expected, acceptance criteria if it's a feature. Small specs welcome.
+2. **TDD is mandatory.** Every code change needs a failing test written first.
+   PRs without tests for new behavior will be asked to add them.
+3. Run the suite before pushing: `pip install -e ".[dev]" && pytest` (all green).
+4. Keep artifacts proportional: small fix → small PR. No drive-by refactors.
 
-## Step 1 — Language
+## Good first issues
 
-Ask: "Main language? 1) Python 2) TypeScript/JavaScript 3) Java 4) Go 5) Other"
-Then read ONLY `.spectdd/skills/architect/<lang>.md`
-(1=python, 2=typescript, 3=java, 4=go, 5=generic).
+Look for the `good first issue` label. Typical starters:
+- Add a language question bank to the architect skill (e.g. `rust.md`, `csharp.md`).
+- Improve stack detection in `_detect_project()` (more manifests, better defaults).
+- Translate command prompts or README sections.
 
-## Step 2 — Architecture interview
+## Project layout
 
-Ask the questions of the language file in order, one at a time, adapting to
-previous answers (skip what no longer applies; e.g. no ORM question for a CLI).
+- `src/spectdd/cli.py` — the whole CLI (gates, wizard, detection).
+- `src/spectdd/assets/commands/` — the 7 phase prompts installed into assistants.
+- `src/spectdd/assets/skills/` — architect interview + language question banks.
+- `src/spectdd/assets/templates/` — document templates copied to `.spectdd/`.
+- `tests/test_cli.py` — 58 tests, written before the code they verify.
 
-## Step 3 — Record
+## Code style
 
-Write decisions to `.spectdd/memory/architecture.md` as a compact table
-(decision | choice | why). Update the constitution's Tech stack section if it
-contradicts these answers, listing what changed. Do not echo either file.
+Python 3.10+, stdlib only (no runtime dependencies — keep it that way), type hints
+in public functions.
 
-Footer:
-DONE architect | review .spectdd/memory/architecture.md | next: /spectdd:constitution
+MIT licensed: by contributing you agree your work is released under the same license.
