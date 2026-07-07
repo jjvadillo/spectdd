@@ -558,3 +558,187 @@ def test_console_messages_are_ascii(repo, capsys):
     cli.main(["init", "--assistant", "claude"])
     out = capsys.readouterr().out
     assert all(ord(ch) < 128 for ch in out), "console output must be ASCII-safe"
+
+
+# ------------------------------------------- Claude Code plugin + hooks (v1.0.0)
+
+import io
+from pathlib import Path as _P
+
+REPO_ROOT = _P(__file__).resolve().parent.parent
+
+
+def _hook(monkeypatch, event, payload):
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    return cli.main(["hook", event])
+
+
+def test_hook_blocks_agent_side_approve(repo, monkeypatch, capsys):
+    cli.main(["init", "--assistant", "claude"])
+    rc = _hook(monkeypatch, "bash-guard",
+               {"cwd": str(repo), "tool_input": {"command": "spectdd approve constitution"}})
+    assert rc == 2
+    assert "developer" in capsys.readouterr().err.lower()
+
+
+def test_hook_blocks_module_form_approve(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+    rc = _hook(monkeypatch, "bash-guard",
+               {"cwd": str(repo),
+                "tool_input": {"command": "python -m spectdd approve tasks --feature 001-x"}})
+    assert rc == 2
+
+
+def test_hook_allows_normal_commands(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+    for cmd in ("spectdd check specify --feature 001-x",
+                "spectdd status",
+                "pytest -q",
+                "cat .spectdd/state.json",
+                "git commit -m 'approve the design'"):
+        assert _hook(monkeypatch, "bash-guard",
+                     {"cwd": str(repo), "tool_input": {"command": cmd}}) == 0, cmd
+
+
+def test_hook_allows_chat_approval_when_configured(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude", "--approval", "chat"])
+    rc = _hook(monkeypatch, "bash-guard",
+               {"cwd": str(repo),
+                "tool_input": {"command":
+                               "spectdd approve specify --feature 001-x --via chat"}})
+    assert rc == 0
+
+
+def test_hook_blocks_via_chat_without_chat_mode(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])  # approval_mode = terminal
+    rc = _hook(monkeypatch, "bash-guard",
+               {"cwd": str(repo),
+                "tool_input": {"command":
+                               "spectdd approve specify --feature 001-x --via chat"}})
+    assert rc == 2
+
+
+def test_hook_blocks_approval_mode_bypass(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+    rc = _hook(monkeypatch, "bash-guard",
+               {"cwd": str(repo),
+                "tool_input": {"command": "spectdd init --assistant none --approval chat"}})
+    assert rc == 2
+
+
+def test_hook_blocks_state_tampering_via_bash(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+    for cmd in ('echo "{}" > .spectdd/state.json',
+                "rm .spectdd/state.json",
+                "sed -i s/PENDING/OK/ .spectdd/config.json"):
+        assert _hook(monkeypatch, "bash-guard",
+                     {"cwd": str(repo), "tool_input": {"command": cmd}}) == 2, cmd
+
+
+def test_hook_file_guard_blocks_state_and_config(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+    for fp in (str(repo / ".spectdd" / "state.json"),
+               ".spectdd/config.json"):
+        assert _hook(monkeypatch, "file-guard",
+                     {"cwd": str(repo), "tool_input": {"file_path": fp}}) == 2, fp
+    assert _hook(monkeypatch, "file-guard",
+                 {"cwd": str(repo),
+                  "tool_input": {"file_path": "src/app.py"}}) == 0
+
+
+def test_hook_session_start_prints_compact_status(repo, monkeypatch, capsys):
+    cli.main(["init", "--assistant", "claude"])
+    cli.main(["approve", "constitution", "--by", "dev"])
+    cli.main(["approve", "specify", "--feature", "001-x", "--by", "dev"])
+    capsys.readouterr()  # descarta la salida de init/approve
+    rc = _hook(monkeypatch, "session-start", {"cwd": str(repo)})
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "constitution=OK" in out and "specify=OK" in out and "plan=-" in out
+    assert len(out) < 500, "session-start context must stay tiny"
+    assert all(ord(ch) < 128 for ch in out)
+
+
+def test_hook_session_start_silent_outside_spectdd_projects(repo, monkeypatch, capsys):
+    rc = _hook(monkeypatch, "session-start", {"cwd": str(repo)})
+    assert rc == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_hook_survives_garbage_stdin(repo, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert cli.main(["hook", "bash-guard"]) == 0
+
+
+def test_init_none_installs_state_only(repo):
+    rc = cli.main(["init", "--assistant", "none", "--no-input"])
+    assert rc == 0
+    assert (repo / ".spectdd" / "state.json").is_file()
+    assert (repo / ".spectdd" / "templates" / "spec-template.md").is_file()
+    assert (repo / ".spectdd" / "memory").is_dir()
+    assert not (repo / ".claude").exists()
+    assert not (repo / ".cursor").exists()
+    assert not (repo / ".github").exists()
+
+
+def test_init_skill_lib_excludes_plugin_trigger(repo):
+    cli.main(["init", "--assistant", "claude"])
+    lib = repo / ".spectdd" / "skills" / "architect"
+    assert (lib / "architect.md").is_file()
+    assert not (lib / "SKILL.md").exists()
+
+
+# ---- plugin repo structure (validated against the working tree)
+
+def test_plugin_manifest_matches_package_version():
+    manifest = json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json")
+                          .read_text(encoding="utf-8"))
+    from spectdd import __version__
+    assert manifest["name"] == "spectdd"
+    assert manifest["version"] == __version__
+
+
+def test_marketplace_lists_the_plugin():
+    mp = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json")
+                    .read_text(encoding="utf-8"))
+    assert mp["name"] == "spectdd"
+    assert any(p["name"] == "spectdd" and p["source"] == "./" for p in mp["plugins"])
+
+
+def test_plugin_commands_cover_every_workflow_command():
+    files = {f.stem for f in (REPO_ROOT / "commands").glob("*.md")}
+    assert files == set(cli.COMMANDS)
+
+
+def test_plugin_commands_have_frontmatter_descriptions():
+    for f in (REPO_ROOT / "commands").glob("*.md"):
+        text = f.read_text(encoding="utf-8")
+        assert text.startswith("---\ndescription:"), f"{f.name} lacks frontmatter description"
+
+
+def test_hooks_json_wires_events_to_the_cli():
+    hooks = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    assert set(hooks) == {"PreToolUse", "SessionStart"}
+    cmds = [h["command"] for group in hooks.values()
+            for entry in group for h in entry["hooks"]]
+    assert cmds and all(c.startswith("spectdd hook ") for c in cmds)
+    events = {c.split()[-1] for c in cmds}
+    assert events == {"bash-guard", "file-guard", "session-start"}
+
+
+def test_plugin_skills_have_valid_frontmatter():
+    for skill in (REPO_ROOT / "skills").iterdir():
+        text = (skill / "SKILL.md").read_text(encoding="utf-8")
+        assert text.startswith("---\n"), f"{skill.name}: missing frontmatter"
+        head = text.split("---", 2)[1]
+        assert "name:" in head and "description:" in head, skill.name
+        desc = [l for l in head.splitlines() if l.startswith("description:")][0]
+        assert len(desc) < 1024, f"{skill.name}: description too long"
+
+
+def test_architect_skill_docs_travel_with_the_skill():
+    lib = REPO_ROOT / "skills" / "spectdd-architect"
+    for doc in ("architect.md", "python.md", "typescript.md", "java.md", "go.md", "generic.md"):
+        assert (lib / doc).is_file(), f"missing {doc}"
+    core = (lib / "architect.md").read_text(encoding="utf-8")
+    assert ".spectdd/skills" not in core, "architect.md must be location-agnostic"

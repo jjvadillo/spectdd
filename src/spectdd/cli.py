@@ -1,17 +1,19 @@
 """spectdd — Spec-Driven + Test-Driven Development workflow with human approval gates.
 
 Commands:
-    spectdd init --assistant {claude,cursor,copilot,all} [--style terse|normal] [--interactive|--no-input]
+    spectdd init --assistant {claude,cursor,copilot,all,none} [--style terse|normal] [--interactive|--no-input]
     spectdd setup [--interactive]                 (re-run the interactive wizard; needs a TTY)
     spectdd approve <phase> [--feature SLUG] [--by NAME]
     spectdd check   <phase> [--feature SLUG]      (for agents; exit 1 = gate closed)
     spectdd revoke  <phase> [--feature SLUG]      (withdraw approval; cascades downstream)
     spectdd status
+    spectdd hook    <event>                       (Claude Code hook handlers; JSON on stdin)
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -230,7 +232,13 @@ def _save_project_config(p: dict) -> None:
 # ------------------------------------------------------------------ init
 
 def cmd_init(args: argparse.Namespace) -> int:
-    targets = list(ASSISTANTS) if args.assistant == "all" else [args.assistant]
+    if args.assistant == "none":
+        targets = []  # plugin mode: commands + skills come from the Claude Code plugin
+        print("  plugin mode: skipped assistant command files (state/templates only)")
+    elif args.assistant == "all":
+        targets = list(ASSISTANTS)
+    else:
+        targets = [args.assistant]
     assets = resources.files("spectdd") / "assets"
 
     for name in targets:
@@ -252,6 +260,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     skill_lib = STATE_DIR / "skills" / "architect"
     skill_lib.mkdir(parents=True, exist_ok=True)
     for doc in (assets / "skills").iterdir():
+        if doc.name == "SKILL.md":  # plugin-format trigger; init writes its own
+            continue
         (skill_lib / doc.name).write_text(doc.read_text(encoding="utf-8"), encoding="utf-8")
     for name in targets:
         trigger = ARCHITECT_TRIGGERS[name]
@@ -432,6 +442,96 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- hooks
+#
+# Claude Code hook handlers (installed by the spectdd plugin, hooks/hooks.json).
+# Each reads the hook JSON payload on stdin. Exit 2 = block the tool call
+# (stderr is fed back to the agent); exit 0 = allow. session-start prints a
+# compact gate status to stdout (added to the agent's context).
+
+_RE_APPROVE = re.compile(r"\bspectdd\b[^|&;\n]*\bapprove\b")
+_RE_MODE_BYPASS = re.compile(r"\bspectdd\b[^|&;\n]*\binit\b[^|&;\n]*--approval[ =]+chat")
+_RE_STATE_FILE = re.compile(r"\.spectdd[\\/](state|config)\.json")
+_RE_WRITEISH = re.compile(
+    r"(>>?|\btee\b|\bsed\b[^|&;\n]*\s-i|\brm\b|\bmv\b|\bcp\b|\bdel\b"
+    r"|Set-Content|Out-File|Add-Content|Remove-Item)", re.IGNORECASE)
+
+
+def _hook_payload() -> dict:
+    try:
+        data = json.load(sys.stdin)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _hook_bash_guard(payload: dict) -> int:
+    cmd = str((payload.get("tool_input") or {}).get("command") or "")
+    if _RE_APPROVE.search(cmd):
+        cfg_file = Path(payload.get("cwd") or ".") / CONFIG_FILE
+        try:
+            cfg = json.loads(cfg_file.read_text(encoding="utf-8")) if cfg_file.is_file() else {}
+        except Exception:
+            cfg = {}
+        if cfg.get("approval_mode") == "chat" and "--via chat" in cmd:
+            return 0
+        print("BLOCKED by spectdd: `spectdd approve` is developer-only. Ask the "
+              "developer to run it in their own terminal and wait for the gate.",
+              file=sys.stderr)
+        return 2
+    if _RE_MODE_BYPASS.search(cmd):
+        print("BLOCKED by spectdd: switching approval_mode is a developer decision.",
+              file=sys.stderr)
+        return 2
+    if _RE_STATE_FILE.search(cmd) and _RE_WRITEISH.search(cmd):
+        print("BLOCKED by spectdd: .spectdd/state.json and config.json are "
+              "developer-managed; gates change only through the spectdd CLI.",
+              file=sys.stderr)
+        return 2
+    return 0
+
+
+def _hook_file_guard(payload: dict) -> int:
+    fp = str((payload.get("tool_input") or {}).get("file_path") or "").replace("\\", "/")
+    if re.search(r"\.spectdd/(state|config)\.json$", fp):
+        print("BLOCKED by spectdd: this file is developer-managed; gates change "
+              "only through the spectdd CLI.", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _hook_session_start(payload: dict) -> int:
+    state_file = Path(payload.get("cwd") or ".") / STATE_FILE
+    if not state_file.is_file():
+        return 0  # not a spectdd project: stay silent, zero context cost
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+
+    def mark(entry) -> str:
+        return "OK" if entry else "-"
+
+    parts = [f"constitution={mark(state.get('constitution'))}"]
+    for slug, gates in (state.get("features") or {}).items():
+        seq = " ".join(f"{ph}={mark(gates.get(ph))}"
+                       for ph in PHASES if ph not in GLOBAL_PHASES)
+        parts.append(f"{slug}: {seq}")
+    print("[spectdd] gates: " + " | ".join(parts))
+    print("[spectdd] Gated SDD+TDD project. Before starting a phase run "
+          "`spectdd check <phase> --feature <slug>`; `spectdd approve` is developer-only.")
+    return 0
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    payload = _hook_payload()
+    if args.event == "bash-guard":
+        return _hook_bash_guard(payload)
+    if args.event == "file-guard":
+        return _hook_file_guard(payload)
+    return _hook_session_start(payload)
+
+
 # ------------------------------------------------------------------ main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -442,7 +542,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="install slash commands and templates into this repo")
-    p_init.add_argument("--assistant", choices=[*ASSISTANTS, "all"], default="all")
+    p_init.add_argument("--assistant", choices=[*ASSISTANTS, "all", "none"], default="all",
+                        help="'none' = state and templates only (Claude Code plugin provides commands/skills)")
     p_init.add_argument("--style", choices=STYLES, default=None,
                         help="chat output style: terse (token-saving, default), normal, or ultra (max compression)")
     p_init.add_argument("--approval", choices=["terminal", "chat"], default=None,
@@ -478,6 +579,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_st = sub.add_parser("status", help="show approval state of all phases")
     p_st.set_defaults(func=cmd_status)
+
+    p_hook = sub.add_parser("hook", help="Claude Code hook handlers (read the hook JSON on stdin)")
+    p_hook.add_argument("event", choices=["bash-guard", "file-guard", "session-start"])
+    p_hook.set_defaults(func=cmd_hook)
     return p
 
 

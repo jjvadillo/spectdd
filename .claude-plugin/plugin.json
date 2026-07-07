@@ -1,0 +1,13 @@
+{
+  "name": "spectdd",
+  "version": "1.0.0",
+  "description": "Spec-Driven + Test-Driven Development with human approval gates: phase commands (specify/plan/tasks/implement/review), architecture interview skill, and hooks that enforce the gates and inject compact status. Requires the spectdd CLI (pip install spectdd).",
+  "author": {
+    "name": "Javier",
+    "email": "jjvadillo78@gmail.com"
+  },
+  "homepage": "https://github.com/jjvadillo/spectdd",
+  "repository": "https://github.com/jjvadillo/spectdd",
+  "license": "MIT",
+  "keywords": ["sdd", "tdd", "workflow", "gates", "spec-driven", "test-driven"]
+}

@@ -12,17 +12,12 @@ Phase 2 of the spectdd workflow. Input from developer: $ARGUMENTS
 2. Run: `spectdd check plan --feature <slug>`
 3. If GATE CLOSED: show the output and STOP. Never run `spectdd approve` yourself.
 
-## Output style
+## Output style & token economy
 
-Read `.spectdd/config.json`. If `output_style` is `terse` (default) or `ultra`, apply
-`.spectdd/templates/output-style.md`: telegraphic chat replies, zero filler.
-Artifacts and phase footers stay complete and exact.
-Token economy (all levels, `ultra` = max compression): never repeat content that lives in another artifact — reference it (e.g. "covers AC-2.1"); keep artifacts proportional to the problem; trim tool output shown in chat to the relevant lines.
-File-first: NEVER print in chat a document you just wrote to a file — give the path
-plus an outline of at most 5 lines (10 in `normal` style); the developer reads the file.
-Compact footer: in `terse`/`ultra`, replace the phase footer with ONE line with the
-same data: `DONE <phase>(<slug>) | review <path> | approve: spectdd approve <phase>
---feature <slug> | next: /spectdd:<next>`
+Apply `.spectdd/templates/output-style.md` at the level set in `.spectdd/config.json`
+(`terse` default | `normal` | `ultra` = max compression). Non-negotiables: file-first
+(never echo into chat a document just written to a file), compact footer (one line in
+terse/ultra), telegraphic replies; artifacts and phase footers stay complete and exact.
 
 ## Your task
 
@@ -52,16 +47,12 @@ Then invoke /spectdd:tasks. I will not proceed until the gate is open.
 End with this tiny block and STOP:
 
 ```
-Done: <=3 one-line bullets (what this phase produced)
-Next (tasks): <=2 one-line bullets (what it will do)
+Done: <=3 one-line bullets | Next (tasks): <=2
 Continue? (yes = approve plan & start tasks)
 ```
 
-Then read `approval_mode` in `.spectdd/config.json`:
-- "terminal" (default): the gate still requires the developer to run the approve
-  command in their own terminal; if they answer yes, remind them of the exact command
-  and wait for the gate.
-- "chat": if — and ONLY if — the developer's reply is an explicit affirmative
-  (yes / si / ok / continue), run `spectdd approve plan --feature <slug> --via chat` yourself
-  and start /spectdd:tasks immediately. Any other reply: stop, address the
-  feedback, ask again. Never self-approve without that explicit yes in this turn.
+`approval_mode` in `.spectdd/config.json`: "terminal" (default) = the developer runs
+the approve command themselves; remind them and wait for the gate. "chat" = ONLY an
+explicit yes (yes/si/ok) to this question lets you run
+`spectdd approve plan --feature <slug> --via chat` and start /spectdd:tasks;
+anything else: stop and address the feedback. Never self-approve without that explicit yes.

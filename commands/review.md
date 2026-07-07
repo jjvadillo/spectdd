@@ -12,12 +12,11 @@ Phase 5 (final) of the spectdd workflow. Input from developer: $ARGUMENTS
 2. Run: `spectdd check review --feature <slug>`
 3. If GATE CLOSED: show the output and STOP. Never run `spectdd approve` yourself.
 
-## Output style
+## Output style & token economy
 
-Read `.spectdd/config.json`. If `output_style` is `terse` (default) or `ultra`, apply
-`.spectdd/templates/output-style.md`: telegraphic chat replies, zero filler.
-The audit reports below stay complete and exact.
-Token economy (all levels, `ultra` = max compression): never repeat content that lives in another artifact — reference it (e.g. "covers AC-2.1"); keep artifacts proportional to the problem; trim tool output shown in chat to the relevant lines.
+Apply `.spectdd/templates/output-style.md` at the level set in `.spectdd/config.json`
+(`terse` default | `ultra` = max compression). The audit reports below stay complete
+and exact.
 
 Act as an independent, skeptical reviewer. Three audits, in order. These audits are
 built into spectdd — do not rely on any external plugin or command.

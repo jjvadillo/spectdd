@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectdd"
-version = "0.9.1"
+version = "1.0.0"
 description = "Spec-Driven + Test-Driven Development workflow for AI coding assistants, with human approval gates."
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Javier", email = "jjvadillo78@gmail.com" }]
 keywords = ["sdd", "tdd", "spec-driven", "test-driven", "ai", "claude", "cursor", "copilot"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
@@ -30,6 +30,13 @@ dev = ["pytest>=7"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spectdd"]
+
+# The plugin directories at the repo root are the single source of truth;
+# the wheel re-exposes them as package data for `spectdd init`.
+[tool.hatch.build.targets.wheel.force-include]
+"commands" = "spectdd/assets/commands"
+"skills/spectdd-architect" = "spectdd/assets/skills"
+"templates" = "spectdd/assets/templates"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
