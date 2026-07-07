@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1
+- `spectdd check` now validates the **full upstream chain**, not just the
+  immediately preceding phase: approving `tasks` while `plan` is pending no
+  longer opens the `implement` gate.
+- `spectdd approve` warns when earlier gates are still pending (the human can
+  still approve out of order, but never silently).
+- `spectdd setup` refuses to run without a TTY instead of silently writing a
+  default constitution; use `--interactive` to force it (e.g. in scripts/tests).
+- New `spectdd --version` flag.
+- Console messages are ASCII-safe (no more mojibake on Windows consoles).
+
 ## 0.9.0
 - **Brownfield onboarding**: new `/spectdd:onboard` command — analyzes an existing
   codebase (manifests fully, source sampled) and generates constitution +

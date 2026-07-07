@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectdd"
-version = "0.9.0"
+version = "0.9.1"
 description = "Spec-Driven + Test-Driven Development workflow for AI coding assistants, with human approval gates."
 readme = "README.md"
 license = { text = "MIT" }

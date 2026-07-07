@@ -286,7 +286,7 @@ def test_init_non_tty_does_not_prompt(repo, monkeypatch):
 def test_setup_command_runs_wizard_later(repo, monkeypatch):
     cli.main(["init", "--assistant", "claude"])
     _feed(monkeypatch, ["OtraApp", "", "", "", "", "", "", "", ""])
-    rc = cli.main(["setup"])
+    rc = cli.main(["setup", "--interactive"])
     assert rc == 0
     c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
     assert "OtraApp" in c
@@ -295,9 +295,9 @@ def test_setup_command_runs_wizard_later(repo, monkeypatch):
 def test_setup_asks_before_overwriting(repo, monkeypatch):
     cli.main(["init", "--assistant", "claude"])
     _feed(monkeypatch, ["App1", "", "", "", "", "", "", "", ""])
-    cli.main(["setup"])
+    cli.main(["setup", "--interactive"])
     _feed(monkeypatch, ["n"])                 # rechazar sobrescritura
-    rc = cli.main(["setup"])
+    rc = cli.main(["setup", "--interactive"])
     assert rc == 0
     c = (repo / ".spectdd" / "memory" / "constitution.md").read_text(encoding="utf-8")
     assert "App1" in c                        # sigue intacta
@@ -485,3 +485,76 @@ def test_init_reports_detected_project(repo, capsys):
     (repo / "pyproject.toml").write_text("[project]\nname='x'\n")
     cli.main(["init", "--assistant", "claude"])
     assert "detected" in capsys.readouterr().out.lower()
+
+
+# ------------------------------------------------ evaluation fixes (v0.9.1)
+
+def test_check_validates_full_upstream_chain(repo, capsys):
+    # aprobar tasks saltándose specify y plan no debe abrir implement
+    cli.main(["init", "--assistant", "claude"])
+    cli.main(["approve", "constitution", "--by", "dev"])
+    cli.main(["approve", "tasks", "--feature", "001-x", "--by", "dev"])
+    rc = cli.main(["check", "implement", "--feature", "001-x"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "specify" in out and "plan" in out
+
+
+def test_approve_warns_when_skipping_phases(repo, capsys):
+    cli.main(["init", "--assistant", "claude"])
+    cli.main(["approve", "constitution", "--by", "dev"])
+    rc = cli.main(["approve", "tasks", "--feature", "001-x", "--by", "dev"])
+    assert rc == 0                             # sigue siendo decisión del humano
+    out = capsys.readouterr().out.lower()
+    assert "warning" in out and "specify" in out and "plan" in out
+
+
+def test_approve_in_order_does_not_warn_about_skipping(repo, capsys):
+    cli.main(["init", "--assistant", "claude"])
+    cli.main(["approve", "constitution", "--by", "dev"])
+    (repo / "specs" / "001-x").mkdir(parents=True)
+    cli.main(["approve", "specify", "--feature", "001-x", "--by", "dev"])
+    assert "pending" not in capsys.readouterr().out.lower()
+
+
+def test_setup_refuses_without_tty(repo, monkeypatch):
+    cli.main(["init", "--assistant", "claude"])
+
+    def boom(prompt=""):
+        raise AssertionError("setup must not prompt without a TTY")
+    monkeypatch.setattr("builtins.input", boom)
+    rc = cli.main(["setup"])                   # stdin no es TTY en los tests
+    assert rc == 1
+    assert not (repo / ".spectdd" / "memory" / "constitution.md").exists()
+
+
+def test_setup_aborts_on_eof_even_if_isatty_lies(repo, monkeypatch):
+    # en Windows, stdin redirigido desde NUL devuelve isatty() == True;
+    # el EOF a mitad del wizard debe abortar sin escribir nada
+    import types
+    cli.main(["init", "--assistant", "claude"])
+    monkeypatch.setattr("sys.stdin", types.SimpleNamespace(isatty=lambda: True))
+
+    def eof(prompt=""):
+        raise EOFError
+    monkeypatch.setattr("builtins.input", eof)
+    rc = cli.main(["setup"])
+    assert rc == 1
+    assert not (repo / ".spectdd" / "memory" / "constitution.md").exists()
+
+
+def test_version_flag(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "spectdd" in out
+    from spectdd import __version__
+    assert __version__ in out
+
+
+def test_console_messages_are_ascii(repo, capsys):
+    (repo / "pyproject.toml").write_text("[project]\nname='x'\n")
+    cli.main(["init", "--assistant", "claude"])
+    out = capsys.readouterr().out
+    assert all(ord(ch) < 128 for ch in out), "console output must be ASCII-safe"
