@@ -1,13 +1,42 @@
-# Architecture questions — TypeScript/JavaScript
+# Changelog
 
-Q1 Project type? 1) REST/GraphQL API 2) Frontend SPA 3) Full-stack 4) CLI 5) Library
-Q2 Runtime? 1) Node LTS ★ ecosystem, stability 2) Bun — speed, all-in-one 3) Deno
-Q3 TypeScript strict mode? 1) yes ★ catches bugs at compile time 2) no (plain JS)
-Q4 (API) Framework? 1) Fastify ★ fast, schema-validated 2) NestJS — big teams, structure 3) Express — familiar 4) Hono — edge
-Q5 (Frontend/Full-stack) 1) Next.js ★ SSR+RSC default 2) React+Vite — SPA 3) SvelteKit
-Q6 Package manager? 1) pnpm ★ fast, strict deps 2) npm 3) yarn
-Q7 (if data) DB + access? 1) PostgreSQL + Drizzle ★ typed SQL, light 2) PostgreSQL + Prisma — DX, migrations 3) SQLite
-Q8 Validation? 1) zod ★ runtime + inferred types 2) class-validator (NestJS)
-Q9 Tests? 1) Vitest ★ fast, ESM native 2) Jest 3) node:test
-Q10 Lint/format? 1) Biome ★ one fast tool 2) ESLint + Prettier — plugin ecosystem
-Q11 Monorepo? 1) no ★ start simple 2) yes — pnpm workspaces/turborepo
+## 0.9.0
+- **Brownfield onboarding**: new `/spectdd:onboard` command — analyzes an existing
+  codebase (manifests fully, source sampled) and generates constitution +
+  architecture.md + gap report, marking uncertainties `[ASSUMED]`.
+- `spectdd init` auto-detects the stack (package.json, pyproject.toml, go.mod,
+  pom.xml, build.gradle) and pre-fills the wizard.
+
+## 0.8.0
+- **Phase handoff**: every phase ends with Done (≤3 bullets) + Next (≤2) + "Continue?".
+- **Chat approval mode** (`--approval chat`): an explicit "yes" to the handoff
+  authorizes the agent to run the approve for you, audited as `via: chat`.
+
+## 0.7.0
+- **spectdd-architect skill**: language question first, then language-specific
+  architecture interview with ★ recommendations. Progressive disclosure: only the
+  chosen language's question bank enters the context window.
+
+## 0.6.0
+- **Output minimization**: file-first rule (no echoing documents into chat),
+  one-line compact footers, failure traces trimmed to the failing assertion.
+  ~65-70% less LLM output vs verbose baseline in simulations.
+
+## 0.5.0
+- `ultra` compression level; token-economy rules in every phase prompt.
+
+## 0.4.0
+- Interactive setup wizard on first `init`; `spectdd setup` to re-run it.
+
+## 0.3.0
+- `spectdd revoke` with downstream cascade; `.spectdd/memory/` created by init;
+  typo warning on approving unknown features; status shows output style.
+
+## 0.2.0
+- Native terse output style; built-in code audit and security audit in review;
+  `SECURITY-NOTE` markers during implement.
+
+## 0.1.0
+- Initial release: gated SDD+TDD workflow (constitution → specify → plan → tasks →
+  implement → review) with human-only approvals enforced by CLI exit codes.
+  Installers for Claude Code, Cursor and GitHub Copilot.
