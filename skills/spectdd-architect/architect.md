@@ -13,7 +13,7 @@ recommendation with ★ plus a one-line reason. Respect the developer's choice.
 ## Step 1 — Language
 
 Ask: "Main language? 1) Python 2) TypeScript/JavaScript 3) Java 4) Go 5) Other"
-Then read ONLY `.spectdd/skills/architect/<lang>.md`
+Then read ONLY `<lang>.md` from the SAME directory as this file
 (1=python, 2=typescript, 3=java, 4=go, 5=generic).
 
 ## Step 2 — Architecture interview

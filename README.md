@@ -6,8 +6,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.9.0-brightgreen.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-58%20passed-success.svg)](tests/test_cli.py)
+[![Version](https://img.shields.io/badge/version-1.0.0-brightgreen.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-85%20passed-success.svg)](tests/test_cli.py)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-6b46c1.svg)](#-install)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](CONTRIBUTING.md)
 
 **Your AI writes the code. You keep the steering wheel. Your wallet keeps its tokens.**
@@ -49,20 +50,40 @@ commit it and approvals become part of code review.
 
 ### 📦 Install
 
+The CLI (the gates) is always needed, on every platform:
+
 ```bash
 pipx install git+https://github.com/jjvadillo/spectdd.git   # recommended
 pip  install git+https://github.com/jjvadillo/spectdd.git   # alternative
+```
+
+**Claude Code — as a plugin** (commands + skills + enforcement hooks, per user,
+one line per project):
+
+```
+/plugin marketplace add jjvadillo/spectdd
+/plugin install spectdd@spectdd
+```
+
+then in each project: `spectdd init --assistant none` (state + templates only —
+the plugin already provides the commands, skills and hooks).
+
+The plugin adds what prompts alone cannot: **hooks that physically block** the
+agent from running `spectdd approve`, from switching the approval mode, and from
+editing `.spectdd/state.json`/`config.json` — plus a 2-line gate status injected
+at session start. Zero context cost unless they act.
+
+**Cursor / GitHub Copilot — via `spectdd init`** (files committed into the repo):
+
+```bash
+cd your-project
+spectdd init --assistant cursor    # or copilot | claude | all
 ```
 
 ### 🚀 Quick start
 
 > 📖 Full step-by-step guide (new project vs existing project, every command
 > explained): **[INSTALL.md](INSTALL.md)**
-
-```bash
-cd your-project
-spectdd init --assistant claude    # or cursor | copilot | all
-```
 
 First run launches an **interactive wizard** (project name, language, frameworks,
 tests, lint, typing, dependencies, output style, approval mode) and generates a
@@ -103,12 +124,13 @@ Pick it with `spectdd init --approval chat`, in the wizard, or in `.spectdd/conf
 
 | Command | What it does |
 |---|---|
-| `spectdd init --assistant claude\|cursor\|copilot\|all [--style terse\|normal\|ultra] [--approval terminal\|chat] [--interactive\|--no-input]` | Install commands, architect skill, templates + setup wizard (auto-detects your stack) |
+| `spectdd init --assistant claude\|cursor\|copilot\|all\|none [--style terse\|normal\|ultra] [--approval terminal\|chat] [--interactive\|--no-input]` | Install commands, architect skill, templates + setup wizard (auto-detects your stack). `none` = state/templates only (plugin mode) |
 | `spectdd setup` | Re-run the wizard (asks before overwriting the constitution) |
 | `spectdd approve <phase> [--feature SLUG] [--by NAME] [--via terminal\|chat]` | Record a human approval (opens the next gate) |
 | `spectdd check <phase> [--feature SLUG]` | Used by the agent — exit 1 = gate closed |
 | `spectdd revoke <phase> [--feature SLUG]` | Withdraw an approval **and every downstream one** |
 | `spectdd status` | Approval state of every phase & feature, style, audit trail |
+| `spectdd hook bash-guard\|file-guard\|session-start` | Claude Code hook handlers (wired automatically by the plugin) |
 
 ### ⚡ Token efficiency by design
 
@@ -169,9 +191,26 @@ externos. Funciona igual en **Claude Code, Cursor y GitHub Copilot**.
 > explicados): **[INSTALL.md](INSTALL.md)**
 
 ```bash
-pipx install git+https://github.com/jjvadillo/spectdd.git
+pipx install git+https://github.com/jjvadillo/spectdd.git   # la CLI siempre hace falta
+```
+
+**Claude Code — como plugin** (comandos + skills + hooks que bloquean de verdad):
+
+```
+/plugin marketplace add jjvadillo/spectdd
+/plugin install spectdd@spectdd
+```
+
+y en cada proyecto: `spectdd init --assistant none` (solo estado y plantillas; los
+comandos, skills y hooks los pone el plugin). Los hooks bloquean físicamente que el
+agente ejecute `spectdd approve`, cambie el modo de aprobación o edite
+`.spectdd/state.json`, e inyectan un estado de puertas de 2 líneas al arrancar la sesión.
+
+**Cursor / GitHub Copilot — con `spectdd init`** (ficheros commiteados al repo):
+
+```bash
 cd tu-proyecto
-spectdd init --assistant claude    # o cursor | copilot | all
+spectdd init --assistant cursor    # o copilot | claude | all
 ```
 
 La primera ejecución lanza el **wizard interactivo** (nombre, lenguaje, frameworks,

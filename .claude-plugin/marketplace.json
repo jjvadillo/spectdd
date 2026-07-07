@@ -1,0 +1,17 @@
+{
+  "name": "spectdd",
+  "metadata": {
+    "description": "Marketplace for the spectdd plugin: gated Spec-Driven + Test-Driven Development for AI coding assistants."
+  },
+  "owner": {
+    "name": "Javier",
+    "email": "jjvadillo78@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "spectdd",
+      "source": "./",
+      "description": "Gated SDD+TDD workflow: 7 phase commands, architect skill, gate-enforcement hooks. Requires the spectdd CLI on PATH."
+    }
+  ]
+}

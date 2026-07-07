@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.0
+- **Claude Code plugin**: the repo is now a plugin + its own marketplace
+  (`.claude-plugin/`). Install with `/plugin marketplace add jjvadillo/spectdd`
+  then `/plugin install spectdd@spectdd`. Cursor/Copilot keep using `spectdd init`.
+- **Hooks (enforcement, not just prompts)**: `PreToolUse` blocks agent-side
+  `spectdd approve` (honoring the chat-mode exception), approval-mode switches
+  and any direct write to `.spectdd/state.json` / `config.json`; `SessionStart`
+  injects a 2-line compact gate status. All handlers live in the CLI
+  (`spectdd hook <event>`), so hooks cost zero context tokens unless they act.
+- **New skill `spectdd-workflow`**: auto-triggers on feature work in spectdd
+  projects and enforces the phase order (thin, ~15 lines).
+- **Token economy**: shared style/handoff boilerplate deduplicated out of every
+  command (16% smaller command prompts, same rules via `output-style.md`);
+  session-start status replaces an agent-side `spectdd status` round trip;
+  plugin skills load lazily (description-only until triggered); hook handlers
+  run out-of-band (zero context tokens unless they block).
+- `spectdd init --assistant none`: state, templates and memory only — for repos
+  where the Claude Code plugin provides commands, skills and hooks.
+- Assets moved to repo root (`commands/`, `skills/`, `templates/`) as the single
+  source of truth; the wheel re-includes them as package data (no duplication).
+
 ## 0.9.1
 - `spectdd check` now validates the **full upstream chain**, not just the
   immediately preceding phase: approving `tasks` while `plan` is pending no

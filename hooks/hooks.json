@@ -1,0 +1,38 @@
+{
+  "description": "spectdd gate enforcement (block agent-side approvals and state tampering) + compact gate status at session start. All handlers live in the spectdd CLI; each costs zero context tokens unless it blocks.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "spectdd hook bash-guard",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "spectdd hook file-guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "spectdd hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
