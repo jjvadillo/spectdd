@@ -2,7 +2,7 @@
 
 Commands:
     spectdd init --assistant {claude,cursor,copilot,all} [--style terse|normal] [--interactive|--no-input]
-    spectdd setup                                 (re-run the interactive wizard)
+    spectdd setup [--interactive]                 (re-run the interactive wizard; needs a TTY)
     spectdd approve <phase> [--feature SLUG] [--by NAME]
     spectdd check   <phase> [--feature SLUG]      (for agents; exit 1 = gate closed)
     spectdd revoke  <phase> [--feature SLUG]      (withdraw approval; cascades downstream)
@@ -17,6 +17,8 @@ import sys
 from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
+
+from spectdd import __version__
 
 PHASES = ["constitution", "specify", "plan", "tasks", "implement", "review"]
 COMMANDS = PHASES + ["onboard"]  # onboard: brownfield entry point, not a gated phase
@@ -80,6 +82,26 @@ def _approval(gates: dict | None, phase: str) -> dict | None:
     return (gates or {}).get(phase)
 
 
+def _prereqs(phase: str) -> list[str]:
+    """Every phase that must be approved before `phase`, in workflow order."""
+    chain: list[str] = []
+
+    def walk(p: str) -> None:
+        for req in REQUIRES[p]:
+            walk(req)
+            if req not in chain:
+                chain.append(req)
+
+    walk(phase)
+    return chain
+
+
+def _missing_prereqs(state: dict, phase: str, feature: str | None) -> list[str]:
+    gates = state["features"].get(feature or "", {})
+    return [p for p in _prereqs(phase)
+            if not (state.get(p) if p in GLOBAL_PHASES else _approval(gates, p))]
+
+
 # ------------------------------------------------------------- detection
 
 def _detect_project() -> tuple[str, dict] | None:
@@ -108,37 +130,43 @@ def _detect_project() -> tuple[str, dict] | None:
 
 CONSTITUTION_PATH = STATE_DIR / "memory" / "constitution.md"
 
-def _ask(question: str, default: str = "") -> str:
+class _WizardAborted(Exception):
+    """stdin ran out mid-wizard: abort instead of silently accepting defaults."""
+
+
+def _ask(question: str, default: str = "", strict: bool = False) -> str:
     suffix = f" [{default}]" if default else ""
     try:
         answer = input(f"  {question}{suffix}: ").strip()
     except EOFError:
+        if strict:
+            raise _WizardAborted from None
         answer = ""
     return answer or default
 
 
-def _run_wizard() -> dict:
+def _run_wizard(strict: bool = False) -> dict:
     print("== spectdd interactive setup ==")
     detected = _detect_project()
     d = detected[1] if detected else {}
     if detected:
-        print(f"Existing project detected ({detected[0]}) — defaults pre-filled from it. "
+        print(f"Existing project detected ({detected[0]}) - defaults pre-filled from it. "
               "For a deep analysis run /spectdd:onboard afterwards.")
     print("Answer (or press Enter to accept the default). This fills your constitution.")
     project = {
-        "name": _ask("Project name", Path.cwd().name),
-        "runtime": _ask("Language / runtime", d.get("runtime", "Python 3.12")),
-        "frameworks": _ask("Frameworks allowed", "standard library only"),
-        "test_framework": _ask("Test framework", d.get("test_framework", "pytest")),
-        "lint": _ask("Lint / format tools", d.get("lint", "ruff")),
-        "typing": _ask("Typing policy", "type hints required in public functions"),
+        "name": _ask("Project name", Path.cwd().name, strict),
+        "runtime": _ask("Language / runtime", d.get("runtime", "Python 3.12"), strict),
+        "frameworks": _ask("Frameworks allowed", "standard library only", strict),
+        "test_framework": _ask("Test framework", d.get("test_framework", "pytest"), strict),
+        "lint": _ask("Lint / format tools", d.get("lint", "ruff"), strict),
+        "typing": _ask("Typing policy", "type hints required in public functions", strict),
         "deps": _ask("Dependencies policy",
-                     "no new dependencies without explicit developer approval"),
+                     "no new dependencies without explicit developer approval", strict),
     }
-    style = _ask("Chat output style (terse/normal/ultra)", "terse").lower()
+    style = _ask("Chat output style (terse/normal/ultra)", "terse", strict).lower()
     project["style"] = style if style in STYLES else "terse"
     approval = _ask("Approval mode (terminal = you run approve; chat = your explicit "
-                    "'yes' in chat approves)", "terminal").lower()
+                    "'yes' in chat approves)", "terminal", strict).lower()
     project["approval"] = approval if approval in ("terminal", "chat") else "terminal"
     return project
 
@@ -216,7 +244,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     detected = _detect_project()
     if detected:
-        print(f"  existing project detected ({detected[0]}) — run /spectdd:onboard "
+        print(f"  existing project detected ({detected[0]}) - run /spectdd:onboard "
               "in your assistant to adopt it")
     (STATE_DIR / "memory").mkdir(parents=True, exist_ok=True)
 
@@ -276,6 +304,11 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if feature and not (Path("specs") / feature).is_dir():
         print(f"WARNING: specs/{feature}/ does not exist yet. "
               "Check the slug for typos before relying on this approval.")
+    skipped = _missing_prereqs(state, phase, feature)
+    if skipped:
+        print(f"WARNING: approving '{phase}' while earlier gates are still pending: "
+              + ", ".join(skipped)
+              + ". The workflow expects phases to be approved in order.")
     entry = {"approved_by": args.by or _git_user(),
              "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "via": getattr(args, "via", None) or "terminal"}
@@ -300,12 +333,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     if phase not in GLOBAL_PHASES and not feature:
         print(f"Phase '{phase}' is per-feature: use --feature <slug>.")
         return 2
-    feature_gates = state["features"].get(feature or "", {})
-    missing = []
-    for req in REQUIRES[phase]:
-        ok = state.get(req) if req in GLOBAL_PHASES else _approval(feature_gates, req)
-        if not ok:
-            missing.append(req)
+    missing = _missing_prereqs(state, phase, feature)
     if missing:
         print(f"GATE CLOSED for '{phase}': developer approval missing for: "
               + ", ".join(missing))
@@ -350,12 +378,22 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_setup(args: argparse.Namespace) -> int:
     """(Re)run the interactive wizard that fills the constitution."""
-    if CONSTITUTION_PATH.is_file():
-        answer = _ask("Constitution already exists. Overwrite? (y/N)", "n").lower()
-        if answer not in ("y", "yes", "s", "si", "sí"):
-            print("Keeping the existing constitution.")
-            return 0
-    project = _run_wizard()
+    strict = not args.interactive
+    if strict and not sys.stdin.isatty():
+        print("spectdd setup is interactive and stdin is not a TTY. "
+              "Run it from a terminal, or force it with --interactive.")
+        return 1
+    try:
+        if CONSTITUTION_PATH.is_file():
+            answer = _ask("Constitution already exists. Overwrite? (y/N)", "n", strict).lower()
+            if answer not in ("y", "yes", "s", "si", "sí"):
+                print("Keeping the existing constitution.")
+                return 0
+        project = _run_wizard(strict=strict)
+    except _WizardAborted:
+        print("stdin closed before the wizard finished - nothing was written. "
+              "Run setup from a terminal, or force defaults with --interactive.")
+        return 1
     _write_constitution(project)
     _save_project_config(project)
     print(f"Wrote {CONSTITUTION_PATH}. Review it and run: spectdd approve constitution")
@@ -400,6 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="spectdd",
         description="spectdd: Spec-Driven + Test-Driven Development with human approval gates.")
+    p.add_argument("--version", action="version", version=f"spectdd {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="install slash commands and templates into this repo")
@@ -415,6 +454,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.set_defaults(func=cmd_init)
 
     p_setup = sub.add_parser("setup", help="(re)run the interactive wizard that fills the constitution")
+    p_setup.add_argument("--interactive", action="store_true",
+                         help="run the wizard even when stdin is not a TTY")
     p_setup.set_defaults(func=cmd_setup)
 
     p_appr = sub.add_parser("approve", help="record the developer's approval of a phase (humans only)")
